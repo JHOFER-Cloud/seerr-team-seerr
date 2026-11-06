@@ -246,6 +246,54 @@ function getUserAvatarUrl(user: User): string {
   return `/avatarproxy/${user.jellyfinUserId}?v=${user.avatarVersion}`;
 }
 
+/**
+ * Reverse of linkJellyfinAccountOnOidcLogin: on a Jellyfin login with no
+ * linked Seerr user, adopt the unlinked Seerr user whose OIDC username matches
+ * the Jellyfin username, instead of creating a duplicate. Skips ambiguous
+ * matches.
+ */
+const linkOidcUserOnJellyfinLogin = async (
+  jellyfinUserId: string,
+  jellyfinUsername?: string
+): Promise<User | null> => {
+  const username = jellyfinUsername?.trim().toLowerCase();
+  const { mediaServerType } = getSettings().main;
+  if (
+    !username ||
+    (mediaServerType !== MediaServerType.JELLYFIN &&
+      mediaServerType !== MediaServerType.EMBY)
+  ) {
+    return null;
+  }
+
+  const userRepository = getRepository(User);
+  const candidates = await userRepository
+    .createQueryBuilder('user')
+    .innerJoin('user.linkedAccounts', 'linkedAccount')
+    .where('LOWER(linkedAccount.username) = :username', { username })
+    .andWhere('user.jellyfinUserId IS NULL')
+    .getMany();
+  if (candidates.length !== 1) {
+    return null;
+  }
+
+  const user = candidates[0];
+  user.jellyfinUserId = jellyfinUserId;
+  user.jellyfinUsername = jellyfinUsername ?? null;
+  user.userType =
+    mediaServerType === MediaServerType.JELLYFIN
+      ? UserType.JELLYFIN
+      : UserType.EMBY;
+  await userRepository.save(user);
+
+  logger.info('Linked Jellyfin account to existing OIDC user', {
+    label: 'Auth',
+    userId: user.id,
+    jellyfinUsername,
+  });
+  return user;
+};
+
 authRoutes.post('/jellyfin', async (req, res, next) => {
   const settings = getSettings();
   const userRepository = getRepository(User);
@@ -333,6 +381,10 @@ authRoutes.post('/jellyfin', async (req, res, next) => {
     user = await userRepository.findOne({
       where: { jellyfinUserId: account.User.Id },
     });
+    user ??= await linkOidcUserOnJellyfinLogin(
+      account.User.Id,
+      account.User.Name
+    );
 
     const missingAdminUser = !user && !(await userRepository.count());
     if (
@@ -760,6 +812,10 @@ authRoutes.post(
       let user = await userRepository.findOne({
         where: { jellyfinUserId: account.User.Id },
       });
+      user ??= await linkOidcUserOnJellyfinLogin(
+        account.User.Id,
+        account.User.Name
+      );
 
       const deviceId = Buffer.from(
         `BOT_seerr_${account.User.Name ?? ''}`

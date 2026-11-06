@@ -507,6 +507,69 @@ describe('POST /auth/jellyfin/quickconnect/authenticate', () => {
     assert.strictEqual(meRes.status, 200);
   });
 
+  async function createOidcUser(email: string, oidcUsername: string) {
+    const user = await getRepository(User).save(
+      new User({
+        email,
+        permissions: 0,
+        avatar: '',
+        userType: UserType.LOCAL,
+      })
+    );
+    await getRepository(LinkedAccount).save(
+      new LinkedAccount({
+        user,
+        provider: 'test',
+        sub: email,
+        username: oidcUsername,
+      })
+    );
+    return user;
+  }
+
+  it('links the Jellyfin account to an unlinked OIDC user with the same username', async () => {
+    const oidcUser = await createOidcUser(
+      'qc-oidc@seerr.dev',
+      'QuickConnectUser'
+    );
+    const userRepo = getRepository(User);
+    const before = await userRepo.count();
+
+    const agent = request.agent(app);
+    const res = await agent
+      .post('/auth/jellyfin/quickconnect/authenticate')
+      .send({ secret: 'abc123def456abc123def456' });
+
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.id, oidcUser.id);
+    assert.strictEqual(await userRepo.count(), before);
+
+    const linked = await userRepo.findOneOrFail({ where: { id: oidcUser.id } });
+    assert.strictEqual(linked.jellyfinUserId, 'jf-qc-user-001');
+    assert.strictEqual(linked.jellyfinUsername, 'quickconnectuser');
+    assert.strictEqual(linked.userType, UserType.JELLYFIN);
+    assert.strictEqual(linked.email, 'qc-oidc@seerr.dev');
+  });
+
+  it('creates a new user when several OIDC users match the Jellyfin username', async () => {
+    const first = await createOidcUser(
+      'qc-oidc-a@seerr.dev',
+      'quickconnectuser'
+    );
+    const second = await createOidcUser(
+      'qc-oidc-b@seerr.dev',
+      'quickconnectuser'
+    );
+
+    const res = await request(app)
+      .post('/auth/jellyfin/quickconnect/authenticate')
+      .send({ secret: 'abc123def456abc123def456' });
+
+    assert.strictEqual(res.status, 200);
+    assert.notStrictEqual(res.body.id, first.id);
+    assert.notStrictEqual(res.body.id, second.id);
+  });
+
   it('returns 403 when the media server is Emby', async () => {
     getSettings().main.mediaServerType = MediaServerType.EMBY;
 
