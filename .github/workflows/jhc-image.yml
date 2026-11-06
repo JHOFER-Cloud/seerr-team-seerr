@@ -44,10 +44,13 @@ jobs:
           @semantic-release/github@12.0.10
           conventional-changelog-conventionalcommits@9.3.1
 
+      # package.json's repository points at upstream, so name the fork explicitly
       - name: semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: '"$RUNNER_TEMP/semantic-release/node_modules/.bin/semantic-release"'
+        run: >-
+          "$RUNNER_TEMP/semantic-release/node_modules/.bin/semantic-release"
+          --repository-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
 
       # semantic-release tags HEAD locally when it releases
       - name: Released version
