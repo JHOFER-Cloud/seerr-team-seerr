@@ -1,7 +1,7 @@
 ---
-# Publishes the patched image for every push to jhc/main. Fleet pins
-# jhc@sha256 and Renovate opens a digest PR per build.
-name: jhc image
+# semantic-release on jhc/main (config: .releaserc.json), then publishes
+# ghcr.io/jhofer-cloud/seerr:<version> for each new release.
+name: jhc release
 
 on:
   push:
@@ -13,11 +13,52 @@ permissions:
   contents: read
 
 concurrency:
-  group: jhc-image
-  cancel-in-progress: true
+  group: jhc-release
 
 jobs:
-  publish:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+
+      # Installed outside the repo so the plugins resolve the preset as a sibling
+      - name: Install semantic-release
+        run: >-
+          npm install --no-save --prefix "$RUNNER_TEMP/semantic-release"
+          semantic-release@25.0.9
+          @semantic-release/commit-analyzer@13.0.1
+          @semantic-release/release-notes-generator@14.1.1
+          @semantic-release/github@12.0.10
+          conventional-changelog-conventionalcommits@9.3.1
+
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: '"$RUNNER_TEMP/semantic-release/node_modules/.bin/semantic-release"'
+
+      # semantic-release tags HEAD locally when it releases
+      - name: Released version
+        id: version
+        run: |
+          tag=$(git tag --points-at HEAD --list 'seerr-v*' | head -1)
+          echo "version=${tag#seerr-v}" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: release
+    if: needs.release.outputs.version != ''
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -26,6 +67,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7.0.1
         with:
+          ref: seerr-v${{ needs.release.outputs.version }}
           persist-credentials: false
 
       - name: Set up Docker Buildx
@@ -47,11 +89,10 @@ jobs:
         uses: docker/metadata-action@v6.2.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/seerr
-          tags: |
-            type=raw,value=jhc
-            type=sha,prefix=jhc-
+          tags: type=raw,value=${{ needs.release.outputs.version }}
           labels: |
             org.opencontainers.image.created=${{ steps.ts.outputs.TIMESTAMP }}
+            org.opencontainers.image.version=${{ needs.release.outputs.version }}
 
       # amd64 only: Seerr runs on the amd64 workers, arm64 is control plane only
       - name: Build & push
@@ -63,7 +104,7 @@ jobs:
           push: true
           build-args: |
             COMMIT_TAG=${{ github.sha }}
-            BUILD_VERSION=develop
+            BUILD_VERSION=${{ needs.release.outputs.version }}
             SOURCE_DATE_EPOCH=${{ steps.ts.outputs.TIMESTAMP }}
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}

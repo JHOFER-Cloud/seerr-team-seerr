@@ -56,6 +56,7 @@ workflows:
         - 'sigstore/cosign-installer@v4.1.2'
     '.github/workflows/jhc-image.yml':
         - 'actions/checkout@v7.0.1'
+        - 'actions/setup-node@v7.0.0'
         - 'docker/build-push-action@v7.3.0'
         - 'docker/login-action@v4.6.0'
         - 'docker/metadata-action@v6.2.0'

@@ -1,0 +1,36 @@
+{
+  "branches": ["jhc/main"],
+  "tagFormat": "seerr-v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "type": "chore", "release": "patch" },
+          { "type": "build", "release": "patch" },
+          { "type": "refactor", "release": "patch" },
+          { "type": "revert", "release": "patch" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "issueUrlFormat": "https://github.com/seerr-team/seerr/issues/{{id}}"
+        }
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "successComment": false,
+        "failComment": false,
+        "failTitle": false,
+        "releasedLabels": false
+      }
+    ]
+  ]
+}
