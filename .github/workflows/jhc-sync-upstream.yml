@@ -24,7 +24,7 @@ jobs:
       # App token: pushes and PRs made with GITHUB_TOKEN do not trigger CI
       - name: Generate GitHub App token
         id: token
-        uses: actions/create-github-app-token@v3.2.0
+        uses: actions/create-github-app-token@v3.3.0
         with:
           app-id: ${{ secrets.UPSTREAM_SYNC_APP_ID }}
           private-key: ${{ secrets.UPSTREAM_SYNC_PRIV_KEY }}
@@ -56,6 +56,8 @@ jobs:
         if: steps.check.outputs.has_updates == 'true'
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
+          # gh prefers the remote named upstream, i.e. seerr-team/seerr
+          GH_REPO: ${{ github.repository }}
           UPSTREAM_SHA: ${{ steps.check.outputs.upstream_sha }}
         run: |
           body="Merges upstream develop at \`$UPSTREAM_SHA\` into \`$BASE_BRANCH\`."
